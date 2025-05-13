@@ -1,12 +1,12 @@
 <?php
 
-// aAttempt to load composer autoloader
-if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
-    require_once __DIR__ . '/../vendor/autoload.php';
+// attempt to load composer autoloader
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
 } else {
     // fallback error handling if autoloader missing
     error_log("FATAL: vendor/autoload.php not found. Please run 'composer install'.");
-
+    http_response_code(500);
     die("Application is not configured correctly. Missing autoloader.");
 }
 
