@@ -105,37 +105,22 @@ jobs:
             echo "Web server deployment complete."
 
   deploy-database-server:
-    name: Deploy Database Server (Code Sync Only)
+    name: Database Server - MANUAL UPDATE REQUIRED
     runs-on: ubuntu-latest
     needs: build-and-push-to-ecr
 
     steps:
-      - name: Sync code to Database Server EC2 instance
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DB_SERVER_HOST }}
-          username: ${{ secrets.DB_SERVER_USER }}
-          key: ${{ secrets.DB_SERVER_SSH_KEY }}
-          script: |
-            set -e
-            echo "Syncing code to Database Server..."
-            PROJECT_PATH="${{ env.PROJECT_DIR }}"
-
-            if [ ! -d "$PROJECT_PATH" ]; then
-              echo "Cloning repository..."
-              git clone https://github.com/${{ github.repository }}.git "$PROJECT_PATH"
-              cd "$PROJECT_PATH"
-            else
-              echo "Repository exists, pulling latest changes..."
-              cd "$PROJECT_PATH"
-              git checkout main 
-              git pull origin main
-            fi
-
-            echo "Creating/Updating .env file for database server..."
-            echo "${{ secrets.ENV_FILE_DB_PROD }}" > "$PROJECT_PATH/.env"
-
-            echo "Code sync to database server complete."
-            echo "MANUAL STEP REQUIRED: If changes were made to docker-compose.db.yml or .env,"
-            echo "connect to the database server (e.g., via SSM Session Manager) and run:"
-            echo "cd ${{ env.PROJECT_DIR }} && docker compose -f docker-compose.db.yml up -d"
+      - name: Display Manual Instructions for Database Server
+        run: |
+          echo "-----------------------------------------------------------------"
+          echo "MANUAL DEPLOYMENT STEPS REQUIRED FOR DATABASE SERVER:"
+          echo "-----------------------------------------------------------------"
+          echo "1. Connect to the database server (e.g., via AWS SSM Session Manager)."
+          echo "2. Navigate to the project directory: cd ${{ env.PROJECT_DIR }}"
+          echo "3. Pull the latest code changes: git pull origin main"
+          echo "4. If composer.json changed (unlikely for DB only): composer install"
+          echo "5. Update .env file manually if new secrets/configs are needed."
+          echo "6. If docker-compose.db.yml or .env changed, restart services:"
+          echo "   sudo docker compose -f docker-compose.db.yml down"
+          echo "   sudo docker compose -f docker-compose.db.yml up -d"
+          echo "-----------------------------------------------------------------"
