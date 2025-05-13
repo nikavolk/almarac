@@ -1,41 +1,74 @@
 <?php
+
 require_once __DIR__ . '/config.php';
 
-try {
-    if (!isset($_GET['file'])) {
-        throw new Exception('No file specified');
+// Default error message function
+function showErrorPage($message, $logContext = '')
+{
+    if (!empty($logContext)) {
+        write_log("Download Error ({$logContext}): " . $message);
+    } else {
+        write_log("Download Error: " . $message);
     }
+    // Basic error page
+    http_response_code(404); // Or 500 depending on context
+    echo "<!DOCTYPE html><html><head><title>Download Error</title><style>body{font-family:sans-serif;padding:20px;text-align:center;}h1{color:red;}</style></head><body>";
+    echo "<h1>Download Error</h1><p>" . htmlspecialchars($message) . "</p>";
+    echo "<p><a href='/index.php'>Back to File List</a></p></body></html>";
+    exit;
+}
 
-    $fileName = $_GET['file'];
+if (empty($_GET['id'])) {
+    showErrorPage('No file ID provided.', 'Missing ID');
+}
 
-    // Get file info from database
-    $stmt = $pdo->prepare("
-        SELECT s3_key, mime_type
-        FROM files
-        WHERE name = ?
-    ");
-    
-    $stmt->execute([$fileName]);
+$fileId = filter_var($_GET['id'], FILTER_VALIDATE_INT);
+
+if ($fileId === false) {
+    showErrorPage('Invalid file ID format.', 'Invalid ID format');
+}
+
+try {
+    // 1. Fetch file details from the database
+    $stmt = $pdo->prepare("SELECT id, s3_key, original_filename FROM files WHERE id = ?");
+    $stmt->execute([$fileId]);
     $file = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$file) {
-        throw new Exception('File not found');
+        showErrorPage('File not found in our records.', "File ID {$fileId} not in DB");
     }
 
-    // Generate pre-signed URL
-    $cmd = $s3->getCommand('GetObject', [
-        'Bucket' => S3_BUCKET,
-        'Key'    => $file['s3_key']
-    ]);
+    $s3Key = $file['s3_key'];
+    $originalFilename = $file['original_filename'];
 
-    $request = $s3->createPresignedRequest($cmd, '+20 minutes');
-    $presignedUrl = (string)$request->getUri();
+    // 2. Generate a pre-signed URL for the S3 object
+    try {
+        write_log("Attempting to generate pre-signed URL for S3 key: {$s3Key}, file ID: {$fileId} ({$originalFilename})");
 
-    // Redirect to pre-signed URL
-    header('Location: ' . $presignedUrl);
-    exit;
+        $command = $s3->getCommand('GetObject', [
+            'Bucket' => S3_BUCKET,
+            'Key' => $s3Key,
+            // Add response-content-disposition to suggest a filename to the browser
+            'ResponseContentDisposition' => 'attachment; filename="' . addslashes($originalFilename) . '"',
+        ]);
 
+        // Create a pre-signed URL. Expires in 15 minutes.
+        $presignedUrl = $s3->createPresignedRequest($command, '+15 minutes')->getUri();
+
+        write_log("Successfully generated pre-signed URL for S3 key: {$s3Key}. Redirecting user.");
+
+        // 3. Redirect the user to the pre-signed URL
+        header("Location: " . (string) $presignedUrl);
+        exit;
+
+    } catch (Aws\S3\Exception\S3Exception $e) {
+        showErrorPage("Could not generate download link due to an S3 error: " . $e->getAwsErrorMessage(), "S3 presign error for {$s3Key}");
+    } catch (Exception $e) { // Catch any other exception during S3 command/request creation
+        showErrorPage("An unexpected error occurred while preparing the download link: " . $e->getMessage(), "General presign error for {$s3Key}");
+    }
+
+} catch (PDOException $e) {
+    showErrorPage("Database error while trying to retrieve file information.", "PDOException for file ID {$fileId}");
 } catch (Exception $e) {
-    http_response_code(404);
-    echo 'Error: ' . $e->getMessage();
-} 
+    showErrorPage("An unexpected error occurred: " . $e->getMessage(), "General error for file ID {$fileId}");
+}

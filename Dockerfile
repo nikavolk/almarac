@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y \
     libonig-dev \
     libxml2-dev \
     zip \
-    unzip
+    unzip \
+    default-mysql-client
 
 # Install PHP extensions
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
@@ -20,7 +21,7 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 RUN a2enmod rewrite
 
 # Install AWS SDK for PHP
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer # This line is redundant and removed
 
 # Set working directory
 WORKDIR /var/www/html
@@ -29,7 +30,11 @@ WORKDIR /var/www/html
 COPY composer.json composer.lock ./
 
 # Install dependencies
-RUN composer install --no-scripts --no-autoloader
+RUN composer install --no-interaction --no-scripts --prefer-dist --optimize-autoloader
+# The --no-autoloader flag was removed, and --optimize-autoloader added.
+# --no-interaction is good for CI/Docker builds.
+# --prefer-dist is often faster.
+# --no-scripts is kept from your original, assuming it's intentional. If your packages need scripts, remove it.
 
 # Copy the rest of the application
 COPY . .

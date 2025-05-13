@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   web:
     build:
@@ -9,6 +7,8 @@ services:
       - "80:80"
     volumes:
       - ./src:/var/www/html
+      - ./vendor:/var/www/vendor
+      - ./.env:/var/www/.env
     depends_on:
       - db
     environment:
