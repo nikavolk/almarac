@@ -91,6 +91,66 @@ try {
         $response['filename'] = $originalFilename;
         http_response_code(201); // success
         write_log("Successfully inserted DB record for {$s3Key}, ID: {$fileId}");
+
+        // --- aws rekognition detect labels and tag S3 object ---
+        if (isset($GLOBALS['rekognition']) && $GLOBALS['rekognition']) {
+            /** @var \Aws\Rekognition\RekognitionClient $rekognitionClient */
+            $rekognitionClient = $GLOBALS['rekognition'];
+            $rekognitionS3Object = [
+                'Bucket' => S3_BUCKET,
+                'Name' => $s3Key
+            ];
+
+            // only attempt rekognition for image types typically supported
+            $rekognitionEligibleMimeTypes = ['image/jpeg', 'image/png'];
+            if (in_array($fileMimeType, $rekognitionEligibleMimeTypes)) {
+                try {
+                    write_log("Attempting Rekognition for {$s3Key}");
+                    $rekognitionResult = $rekognitionClient->detectLabels([
+                        'Image' => ['S3Object' => $rekognitionS3Object],
+                        'MaxLabels' => 10,
+                        'MinConfidence' => 75,
+                    ]);
+
+                    $labels = $rekognitionResult->get('Labels');
+                    if (!empty($labels)) {
+                        $s3Tags = [];
+                        foreach ($labels as $index => $label) {
+                            $tagName = preg_replace('/[^a-zA-Z0-9_.:/=+\-@]/ ', '_', $label['Name']);
+                            $tagName = substr('rekognition-' . $tagName, 0, 128);
+
+                            $s3Tags[] = [
+                                'Key' => $tagName,
+                                'Value' => substr((string) round($label['Confidence'], 2), 0, 256)
+                            ];
+                        }
+
+                        if (!empty($s3Tags)) {
+                            $s3->putObjectTagging([
+                                'Bucket' => S3_BUCKET,
+                                'Key' => $s3Key,
+                                'Tagging' => ['TagSet' => $s3Tags],
+                            ]);
+                            write_log("Successfully applied Rekognition tags to {$s3Key}", 'rekognition-logs', ['tags_count' => count($s3Tags)]);
+                        }
+                    } else {
+                        write_log("Rekognition found no labels for {$s3Key} above MinConfidence.", 'rekognition-logs');
+                    }
+                } catch (\Aws\Rekognition\Exception\RekognitionException $e) {
+                    write_log("AWS Rekognition Error for {$s3Key}: " . $e->getMessage(), 'rekognition-errors', ['aws_error_code' => $e->getAwsErrorCode()]);
+                } catch (\Aws\S3\Exception\S3Exception $e) {
+                    write_log("S3 Error putting Rekognition tags for {$s3Key}: " . $e->getMessage(), 'rekognition-errors', ['aws_error_code' => $e->getAwsErrorCode()]);
+                } catch (Exception $e) {
+                    write_log("General Error during Rekognition processing for {$s3Key}: " . $e->getMessage(), 'rekognition-errors');
+                }
+            } else {
+                write_log("Skipping Rekognition for {$s3Key} due to unsupported MIME type: {$fileMimeType}", 'rekognition-logs');
+            }
+        } else {
+            write_log("Rekognition client not available. Skipping label detection.", 'rekognition-logs');
+        }
+        // --- end aws rekognition ---
+
     } else {
         // if DB insert fails, delete S3 object to prevent orphans
         write_log("Database insert failed for {$s3Key} after S3 upload. Error: " . implode("; ", $stmt->errorInfo()));

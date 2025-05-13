@@ -13,6 +13,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
 use Dotenv\Dotenv;
 use Aws\S3\S3Client;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
+use Aws\Rekognition\RekognitionClient;
 use Aws\Exception\AwsException;
 
 // load variables from .env file
@@ -107,6 +108,26 @@ if (LOG_ENABLED && AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY) {
     if (LOG_ENABLED) { // check if initially true
         error_log("WARNING: CloudWatch logging was enabled but AWS credentials are not fully configured. Logging to CloudWatch will be disabled.");
     }
+}
+
+// --- aws rekognition client ---
+/** @var RekognitionClient $rekognition */
+$rekognition = null;
+if (AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY) {
+    try {
+        $rekognition = new RekognitionClient([
+            'version' => 'latest',
+            'region' => AWS_REGION,
+            'credentials' => [
+                'key' => AWS_ACCESS_KEY_ID,
+                'secret' => AWS_SECRET_ACCESS_KEY,
+            ],
+        ]);
+    } catch (Exception $e) {
+        error_log("WARNING: Failed to initialize AWS Rekognition client: " . $e->getMessage() . ". Rekognition features will be disabled.");
+    }
+} else {
+    error_log("WARNING: AWS Rekognition credentials not fully configured. Rekognition features will be disabled.");
 }
 
 // --- helper function to write logs ---
