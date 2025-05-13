@@ -1,8 +1,6 @@
 <?php
 
 require_once __DIR__ . '/config.php';
-
-// Default error message function
 function showErrorPage($message, $logContext = '')
 {
     if (!empty($logContext)) {
@@ -10,8 +8,8 @@ function showErrorPage($message, $logContext = '')
     } else {
         write_log("Download Error: " . $message);
     }
-    // Basic error page
-    http_response_code(404); // Or 500 depending on context
+
+    http_response_code(404);
     echo "<!DOCTYPE html><html><head><title>Download Error</title><style>body{font-family:sans-serif;padding:20px;text-align:center;}h1{color:red;}</style></head><body>";
     echo "<h1>Download Error</h1><p>" . htmlspecialchars($message) . "</p>";
     echo "<p><a href='/index.php'>Back to File List</a></p></body></html>";
@@ -29,7 +27,7 @@ if ($fileId === false) {
 }
 
 try {
-    // 1. Fetch file details from the database
+    // fetch file details from db
     $stmt = $pdo->prepare("SELECT id, s3_key, original_filename FROM files WHERE id = ?");
     $stmt->execute([$fileId]);
     $file = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -41,29 +39,29 @@ try {
     $s3Key = $file['s3_key'];
     $originalFilename = $file['original_filename'];
 
-    // 2. Generate a pre-signed URL for the S3 object
+    // generate pre-signed url for s3 object
     try {
         write_log("Attempting to generate pre-signed URL for S3 key: {$s3Key}, file ID: {$fileId} ({$originalFilename})");
 
         $command = $s3->getCommand('GetObject', [
             'Bucket' => S3_BUCKET,
             'Key' => $s3Key,
-            // Add response-content-disposition to suggest a filename to the browser
+            // add response-content-disposition to suggest a filename to the browser
             'ResponseContentDisposition' => 'attachment; filename="' . addslashes($originalFilename) . '"',
         ]);
 
-        // Create a pre-signed URL. Expires in 15 minutes.
+        // create a presigned URL for 15 min
         $presignedUrl = $s3->createPresignedRequest($command, '+15 minutes')->getUri();
 
         write_log("Successfully generated pre-signed URL for S3 key: {$s3Key}. Redirecting user.");
 
-        // 3. Redirect the user to the pre-signed URL
+        // redirect user to presigned url
         header("Location: " . (string) $presignedUrl);
         exit;
 
     } catch (Aws\S3\Exception\S3Exception $e) {
         showErrorPage("Could not generate download link due to an S3 error: " . $e->getAwsErrorMessage(), "S3 presign error for {$s3Key}");
-    } catch (Exception $e) { // Catch any other exception during S3 command/request creation
+    } catch (Exception $e) {
         showErrorPage("An unexpected error occurred while preparing the download link: " . $e->getMessage(), "General presign error for {$s3Key}");
     }
 

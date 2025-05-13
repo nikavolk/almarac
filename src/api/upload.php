@@ -7,14 +7,14 @@ header('Content-Type: application/json');
 $response = ['success' => false, 'message' => 'Invalid request.'];
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405); // Method Not Allowed
+    http_response_code(405);
     $response['message'] = 'Only POST requests are allowed.';
     echo json_encode($response);
     exit;
 }
 
 if (empty($_FILES['uploadedFile'])) {
-    http_response_code(400); // Bad Request
+    http_response_code(400);
     $response['message'] = 'No file uploaded or incorrect field name. Expected "uploadedFile".';
     echo json_encode($response);
     exit;
@@ -22,10 +22,10 @@ if (empty($_FILES['uploadedFile'])) {
 
 $file = $_FILES['uploadedFile'];
 
-// --- File Validation ---
-$maxFileSize = 5 * 1024 * 1024; // 5 MB
+// --- file validation ---
+$maxFileSize = 5 * 1024 * 1024; // 5 MB max upload
 if ($file['size'] > $maxFileSize) {
-    http_response_code(413); // Payload Too Large
+    http_response_code(413); // file too large
     $response['message'] = 'File is too large. Maximum size is 5MB.';
     echo json_encode($response);
     exit;
@@ -46,9 +46,9 @@ $fileMimeType = mime_content_type($file['tmp_name']);
 $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
 if (!in_array($fileMimeType, $allowedMimeTypes) || !in_array($fileExtension, $allowedExtensions)) {
-    http_response_code(415); // Unsupported Media Type
+    http_response_code(415); // unsupported Media Type
     $response['message'] = 'Invalid file type. Allowed types: JPG, PNG, PDF, DOC, DOCX, TXT, ZIP.';
-    $response['debug_details'] = ['mime' => $fileMimeType, 'ext' => $fileExtension]; // For debugging
+    $response['debug_details'] = ['mime' => $fileMimeType, 'ext' => $fileExtension]; // for debugging
     write_log("Invalid file type attempt: MIME: {$fileMimeType}, EXT: {$fileExtension}, Filename: {$file['name']}");
     echo json_encode($response);
     exit;
@@ -62,9 +62,9 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
     exit;
 }
 
-// --- S3 Upload ---
+// --- S3 upload ---
 $originalFilename = basename($file['name']);
-$s3Key = 'uploads/' . uniqid() . '-' . preg_replace('/[^a-zA-Z0-9_.-]/', '_', $originalFilename); // Sanitize and make unique
+$s3Key = 'uploads/' . uniqid() . '-' . preg_replace('/[^a-zA-Z0-9_.-]/', '_', $originalFilename); // sanitize and make unique
 
 try {
     write_log("Attempting to upload {$originalFilename} to S3 with key {$s3Key}");
@@ -72,13 +72,13 @@ try {
     $s3->putObject([
         'Bucket' => S3_BUCKET,
         'Key' => $s3Key,
-        'Body' => fopen($file['tmp_name'], 'rb'), // Stream the file
-        'ACL' => 'private' // Or your desired ACL
+        'Body' => fopen($file['tmp_name'], 'rb'), // stream the file
+        'ACL' => 'private'
     ]);
 
     write_log("Successfully uploaded {$s3Key} to S3 bucket " . S3_BUCKET);
 
-    // --- Database Insert ---
+    // --- insert data into db ---
     $sql = "INSERT INTO files (original_filename, s3_key, file_size, file_type, uploaded_at) VALUES (?, ?, ?, ?, NOW())";
     $stmt = $pdo->prepare($sql);
 
@@ -89,12 +89,11 @@ try {
         $response['file_id'] = $fileId;
         $response['s3_key'] = $s3Key;
         $response['filename'] = $originalFilename;
-        http_response_code(201); // Created
+        http_response_code(201); // success
         write_log("Successfully inserted DB record for {$s3Key}, ID: {$fileId}");
     } else {
-        // If DB insert fails, we should ideally try to delete the S3 object to prevent orphans
+        // if DB insert fails, delete S3 object to prevent orphans
         write_log("Database insert failed for {$s3Key} after S3 upload. Error: " . implode("; ", $stmt->errorInfo()));
-        // Attempt to delete the orphaned S3 object
         try {
             $s3->deleteObject([
                 'Bucket' => S3_BUCKET,
@@ -112,7 +111,7 @@ try {
     http_response_code(500);
     $response['message'] = 'Error uploading file to S3: ' . $e->getAwsErrorMessage();
     write_log("S3 Upload Error for {$originalFilename}: " . $e->getMessage());
-    // Add more detailed error info if available
+    // add more detailed error info if available
     if ($e->getAwsErrorCode())
         $response['aws_error_code'] = $e->getAwsErrorCode();
     if ($e->getAwsErrorType())
@@ -122,8 +121,6 @@ try {
     http_response_code(500);
     $response['message'] = 'Database error after S3 upload: ' . $e->getMessage();
     write_log("Database Error post-S3 upload for {$originalFilename} (S3 key {$s3Key}): " . $e->getMessage());
-    // Potentially an orphaned S3 object exists here as well.
-    // Consider implementing a cleanup mechanism for such cases.
 
 } catch (Exception $e) {
     http_response_code(500);
@@ -134,7 +131,7 @@ try {
 echo json_encode($response);
 exit;
 
-// Helper function to convert upload error codes to strings
+// helper function to convert upload error codes to strings for easier debugging
 function upload_error_to_string($code)
 {
     switch ($code) {

@@ -1,14 +1,12 @@
 <?php
 
-// Attempt to load Composer's autoloader
+// aAttempt to load composer autoloader
 if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
     require_once __DIR__ . '/../vendor/autoload.php';
 } else {
-    // Fallback error handling if autoloader is missing
+    // fallback error handling if autoloader missing
     error_log("FATAL: vendor/autoload.php not found. Please run 'composer install'.");
-    // Optionally, you could send a 500 error response if this is a web request context
-    // header('HTTP/1.1 500 Internal Server Error');
-    // echo json_encode(['success' => false, 'message' => 'Server configuration error: Autoloader missing.']);
+
     die("Application is not configured correctly. Missing autoloader.");
 }
 
@@ -17,36 +15,35 @@ use Aws\S3\S3Client;
 use Aws\CloudWatchLogs\CloudWatchLogsClient;
 use Aws\Exception\AwsException;
 
-// Load environment variables from .env file in the project root
+// load variables from .env file
 try {
-    $dotenv = Dotenv::createImmutable(__DIR__ . '/..'); // Project root is one level up from src/
+    $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
     $dotenv->load();
 } catch (\Dotenv\Exception\InvalidPathException $e) {
     error_log("FATAL: .env file not found. " . $e->getMessage());
     die("Application is not configured correctly. Missing .env file.");
 }
 
-// --- Database Configuration ---
+// --- database config ---
 define('DB_HOST', $_ENV['DB_HOST'] ?? 'localhost');
 define('DB_NAME', $_ENV['DB_NAME'] ?? 'filemanager');
 define('DB_USER', $_ENV['DB_USER'] ?? 'root');
 define('DB_PASS', $_ENV['DB_PASSWORD'] ?? '');
 
-// --- AWS Configuration ---
+// --- aws config ---
 define('AWS_ACCESS_KEY_ID', $_ENV['AWS_ACCESS_KEY_ID'] ?? null);
 define('AWS_SECRET_ACCESS_KEY', $_ENV['AWS_SECRET_ACCESS_KEY'] ?? null);
 define('AWS_REGION', $_ENV['AWS_DEFAULT_REGION'] ?? 'us-east-1');
 define('S3_BUCKET', $_ENV['S3_BUCKET'] ?? null);
 
-// --- CloudWatch Logs Configuration ---
+// --- cloudwatch logs config ---
 define('LOG_GROUP_NAME', $_ENV['LOG_GROUP_NAME'] ?? '/app/file-manager');
-// Ensure LOG_ENABLED is defined before it's used by the CloudWatchLogsClient setup
 $logEnabledSetting = $_ENV['LOG_ENABLED'] ?? true;
 if (!defined('LOG_ENABLED')) {
     define('LOG_ENABLED', filter_var($logEnabledSetting, FILTER_VALIDATE_BOOLEAN));
 }
 
-// --- PDO Database Connection ---
+// --- pdo database connection ---
 /** @var PDO $pdo */
 $pdo = null;
 try {
@@ -63,10 +60,10 @@ try {
         header('HTTP/1.1 503 Service Unavailable');
         echo json_encode(['success' => false, 'message' => 'Database connection error. Please check server logs.']);
     }
-    die(); // Exit script
+    die(); // exit script ;(
 }
 
-// --- AWS S3 Client ---
+// --- aws s3 client ---
 /** @var S3Client $s3 */
 $s3 = null;
 if (AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY && S3_BUCKET) {
@@ -81,13 +78,12 @@ if (AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY && S3_BUCKET) {
         ]);
     } catch (Exception $e) {
         error_log("ERROR: Failed to initialize AWS S3 client: " . $e->getMessage());
-        // Depending on app needs, you might die() here or let it proceed with S3 disabled
     }
 } else {
     error_log("WARNING: AWS S3 credentials or S3_BUCKET not fully configured. S3 operations will be disabled.");
 }
 
-// --- AWS CloudWatch Logs Client ---
+// --- aws cloudwatch logs client ---
 /** @var CloudWatchLogsClient $cloudWatchLogs */
 $cloudWatchLogs = null;
 if (LOG_ENABLED && AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY) {
@@ -102,25 +98,21 @@ if (LOG_ENABLED && AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY) {
         ]);
     } catch (Exception $e) {
         error_log("WARNING: Failed to initialize AWS CloudWatch Logs client: " . $e->getMessage() . ". Logging to CloudWatch will be disabled.");
-        // Redefine LOG_ENABLED to false if client initialization fails
-        if (defined('LOG_ENABLED')) { // Should always be true from above
-            $redefineLogEnabled = false; // Temp var to avoid direct constant modification issue for linters
-            // This is tricky as constants can't be truly redefined. 
-            // The write_log function will check $GLOBALS['cloudWatchLogs'] which will be null.
+        // redefine LOG_ENABLED to false if client initialization fails
+        if (defined('LOG_ENABLED')) { // should always be true from above
+            $redefineLogEnabled = false; // temp var to avoid direct constant modification issue for linters
         }
     }
 } else {
-    if (LOG_ENABLED) { // Check if it was initially true
+    if (LOG_ENABLED) { // check if initially true
         error_log("WARNING: CloudWatch logging was enabled but AWS credentials are not fully configured. Logging to CloudWatch will be disabled.");
-        // Similar to above, LOG_ENABLED can't be simply redefined here.
-        // The write_log function's check for $GLOBALS['cloudWatchLogs'] handles this.
     }
 }
 
-// --- Helper function to write logs ---
+// --- helper function to write logs ---
 function write_log(string $message, string $logStreamName = 'application-logs', array $context = [])
 {
-    // Check if logging is truly possible (client initialized)
+    // check if logging is truly possible (client initialized)
     if (!defined('LOG_ENABLED') || !LOG_ENABLED || !isset($GLOBALS['cloudWatchLogs']) || !$GLOBALS['cloudWatchLogs']) {
         $logHeader = date('[Y-m-d H:i:s]') . " [{$logStreamName}]";
         $logOutput = "{$logHeader} {$message}";
@@ -155,7 +147,7 @@ function write_log(string $message, string $logStreamName = 'application-logs', 
             $sequenceToken = $streamsResult['logStreams'][0]['uploadSequenceToken'];
         }
     } catch (AwsException $e) {
-        if ($e->getAwsErrorCode() !== 'ResourceNotFoundException') { // It's okay if stream/group not found yet
+        if ($e->getAwsErrorCode() !== 'ResourceNotFoundException') {
             error_log("CloudWatch DescribeLogStreams API error for {$logGroupName}/{$logStreamName}: " . $e->getMessage());
         }
     }
@@ -208,7 +200,7 @@ set_error_handler(function ($severity, $message, $file, $line) {
     }
     $context = ['file' => $file, 'line' => $line, 'severity' => $severity];
     write_log("PHP Error: {$message}", 'php-errors', $context);
-    return true; // Suppress default PHP error handler to avoid duplicate logging if not FATAL
+    return true; // suppress default php error handler to avoid duplicate logging if not FATAL
 });
 
 set_exception_handler(function (Throwable $exception) {
@@ -216,7 +208,6 @@ set_exception_handler(function (Throwable $exception) {
         'file' => $exception->getFile(),
         'line' => $exception->getLine(),
         'code' => $exception->getCode(),
-        // 'trace' => $exception->getTraceAsString() // Log full trace only if absolutely needed, can be very verbose
     ];
     write_log("PHP Exception: " . $exception->getMessage(), 'php-exceptions', $context);
 
@@ -237,9 +228,5 @@ set_exception_handler(function (Throwable $exception) {
             echo "<html><body><h1>Error</h1><p>An unexpected server error occurred. Please try again later or contact support.</p></body></html>";
         }
     }
-    // For critical unhandled exceptions, it's often best to exit to prevent further issues.
     exit;
 });
-
-// Ensure output buffering is off or managed if you plan to send headers after output
-// ini_set('output_buffering', 'Off'); 

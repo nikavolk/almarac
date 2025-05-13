@@ -13,11 +13,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Get JSON input from the request body
+// get JSON input from the request body
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (empty($input['file_id'])) {
-    http_response_code(400); // Bad Request
+    http_response_code(400);
     $response['message'] = 'Missing file_id in request body.';
     echo json_encode($response);
     exit;
@@ -33,13 +33,13 @@ if ($fileId === false) {
 }
 
 try {
-    // 1. Fetch file details from the database
+    // fetch file details from db
     $stmt = $pdo->prepare("SELECT id, s3_key, original_filename FROM files WHERE id = ?");
     $stmt->execute([$fileId]);
     $file = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$file) {
-        http_response_code(404); // Not Found
+        http_response_code(404);
         $response['message'] = 'File record not found in database.';
         write_log("Delete attempt: File ID {$fileId} not found in DB.");
         echo json_encode($response);
@@ -49,7 +49,7 @@ try {
     $s3Key = $file['s3_key'];
     $originalFilename = $file['original_filename'];
 
-    // 2. Delete the object from S3
+    // delete object from S3
     try {
         write_log("Attempting to delete S3 object: {$s3Key} for file ID: {$fileId} ({$originalFilename})");
         $s3->deleteObject([
@@ -58,7 +58,7 @@ try {
         ]);
         write_log("Successfully deleted S3 object: {$s3Key} (or it did not exist).");
 
-        // 3. Delete the record from the database
+        // delete record from db
         try {
             $stmt = $pdo->prepare("DELETE FROM files WHERE id = ?");
             if ($stmt->execute([$fileId])) {
@@ -67,7 +67,7 @@ try {
                     $response['message'] = "File '{$originalFilename}' (ID: {$fileId}) deleted successfully from S3 and database.";
                     write_log("Successfully deleted DB record for file ID: {$fileId} ({$originalFilename}), S3 key: {$s3Key}");
                 } else {
-                    // Should not happen if we fetched the file first, but good to handle
+                    // should not happen if file fetch successful but good to handle
                     http_response_code(404);
                     $response['message'] = "File record for ID {$fileId} was not found for deletion after S3 operation (race condition?)";
                     write_log("DB delete warning: Record for file ID {$fileId} not found during delete, though S3 object {$s3Key} was targeted.");
@@ -76,7 +76,6 @@ try {
                 http_response_code(500);
                 $response['message'] = "Failed to delete file record from database after S3 deletion.";
                 write_log("CRITICAL: Failed to delete DB record for file ID: {$fileId} ({$originalFilename}) after S3 object {$s3Key} was deleted. Error: " . implode("; ", $stmt->errorInfo()));
-                // This leaves an inconsistency: S3 object deleted, DB record remains.
             }
         } catch (PDOException $e) {
             http_response_code(500);
@@ -85,14 +84,12 @@ try {
         }
 
     } catch (Aws\S3\Exception\S3Exception $e) {
-        // Log the S3 error, but decide if we should proceed to DB delete.
-        // If S3 object is already gone (e.g. NoSuchKey), we might want to proceed.
-        // For other S3 errors, it might be safer to stop and not delete DB record to avoid inconsistency.
+        // log S3 error but decide if proceed to DB delete
+        // if S3 object missing (ex NoSuchKey) then proceed
+        // otherwise stop and not delete db record to avoid inconsistency
         write_log("S3 delete error for key {$s3Key}, file ID {$fileId} ({$originalFilename}): " . $e->getMessage());
         if ($e->getAwsErrorCode() === 'NoSuchKey') {
             write_log("S3 object {$s3Key} not found (NoSuchKey), proceeding to attempt DB record deletion for file ID {$fileId}.");
-            // Fall through to attempt DB deletion if S3 object was already gone.
-            // Re-wrap the DB deletion logic here or refactor to avoid duplication if complex.
             try {
                 $stmt = $pdo->prepare("DELETE FROM files WHERE id = ?");
                 if ($stmt->execute([$fileId])) {
