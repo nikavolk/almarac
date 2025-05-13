@@ -20,27 +20,26 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Enable Apache modules
 RUN a2enmod rewrite
 
-# Install AWS SDK for PHP
-# RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer # This line is redundant and removed
+# Set working directory for Composer actions
+WORKDIR /app
 
-# Set working directory
-WORKDIR /var/www/html
-
-# Copy composer files
+# Copy only Composer files first
 COPY composer.json composer.lock ./
 
-# Install dependencies
+# Install dependencies to /app/vendor
 RUN composer install --no-interaction --no-scripts --prefer-dist --optimize-autoloader
-# The --no-autoloader flag was removed, and --optimize-autoloader added.
-# --no-interaction is good for CI/Docker builds.
-# --prefer-dist is often faster.
-# --no-scripts is kept from your original, assuming it's intentional. If your packages need scripts, remove it.
 
-# Copy the rest of the application
-COPY . .
+# Set the final Apache document root as WORKDIR
+WORKDIR /var/www/html
 
-# Generate autoloader
-RUN composer dump-autoload --optimize
+# Clean the web root (important if previous layers had different content)
+RUN rm -rf ./*
 
-# Set permissions
+# Copy your application source code from repo src/ to /var/www/html/
+COPY src/. /var/www/html/
+
+# Copy the installed vendor directory from the temporary /app location to the web root
+COPY --from=0 /app/vendor/ /var/www/html/vendor/
+
+# Set permissions for Apache
 RUN chown -R www-data:www-data /var/www/html 
