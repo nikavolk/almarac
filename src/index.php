@@ -296,6 +296,7 @@
                     this.successMessage = '';
                     let successfulUploads = 0;
                     let failedUploads = 0;
+                    let lastErrorMessage = '';
 
                     for (let i = 0; i < this.selectedFiles.length; i++) {
                         const fileToUpload = this.selectedFiles[i];
@@ -306,6 +307,7 @@
                         if (fileToUpload.size > maxSize) {
                             this.showAlert(`${fileToUpload.name} exceeds the 5MB limit. Skipping.`, 'error');
                             failedUploads++;
+                            lastErrorMessage = `${fileToUpload.name} exceeds the 5MB limit.`;
                             this.overallUploadProgress = Math.round(((i + 1) / this.selectedFiles.length) * 100);
                             continue;
                         }
@@ -327,6 +329,7 @@
                         if (!typeIsValid || !extensionIsValid) {
                             this.showAlert(`Invalid file type or extension for ${fileToUpload.name}. Skipping.`, 'error');
                             failedUploads++;
+                            lastErrorMessage = `Invalid file type or extension for ${fileToUpload.name}.`;
                             this.overallUploadProgress = Math.round(((i + 1) / this.selectedFiles.length) * 100);
                             continue;
                         }
@@ -341,18 +344,23 @@
                             successfulUploads++;
                         } catch (error) {
                             failedUploads++;
-                            this.showAlert(`Upload failed for ${fileToUpload.name}: ${error.message}`, 'error');
+                            lastErrorMessage = error.message || `Upload failed for ${fileToUpload.name}.`;
+                            this.showAlert(`Upload failed for ${fileToUpload.name}: ${lastErrorMessage}`, 'error');
                         }
                         this.overallUploadProgress = Math.round(((i + 1) / this.selectedFiles.length) * 100);
                     }
 
                     this.isUploading = false;
                     this.currentUploadStatus = 'Uploads complete.';
-                    if (successfulUploads > 0) {
-                        this.showAlert(`${successfulUploads} file(s) uploaded successfully.`, 'success');
-                    }
+
                     if (failedUploads > 0) {
-                        this.showAlert(`${failedUploads} file(s) failed to upload.`, 'error');
+                        if (this.selectedFiles.length === 1) {
+                            this.showAlert(lastErrorMessage, 'error');
+                        } else {
+                            this.showAlert(`${failedUploads} file(s) failed to upload. Last error: ${lastErrorMessage}`, 'error');
+                        }
+                    } else if (successfulUploads > 0) {
+                        this.showAlert(`${successfulUploads} file(s) uploaded successfully.`, 'success');
                     }
 
                     this.clearSelectedFiles();
