@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.build-image.outputs.image_tag }}
-      image_uri: ${{ steps.build-image.outputs.image_uri }}
 
     steps:
       - name: Checkout code
@@ -51,17 +50,15 @@ jobs:
 
           echo "--- Setting outputs --- "
           echo "Image Tag to set: ${IMAGE_TAG}"
-          echo "Image URI to set: ${IMAGE_URI}"
 
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "--- Outputs set --- "
 
   deploy-web-server:
     name: Deploy Web Server
     runs-on: ubuntu-latest
     needs: build-and-push-to-ecr
-    if: success() && needs.build-and-push-to-ecr.outputs.image_uri != ''
+    if: success() && needs.build-and-push-to-ecr.outputs.image_tag != ''
 
     steps:
       - name: Deploy to Web Server EC2 instance
@@ -74,6 +71,10 @@ jobs:
             set -e # Exit immediately if a command exits with a non-zero status.
             echo "Deploying to Web Server..."
             PROJECT_PATH="${{ env.PROJECT_DIR }}" # Define once
+
+            # Reconstruct the image URI for the SHA-tagged image
+            SHA_IMAGE_URI="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ needs.build-and-push-to-ecr.outputs.image_tag }}"
+            LATEST_IMAGE_URI="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest"
 
             # Navigate to project directory, or clone if it doesn't exist
             if [ ! -d "$PROJECT_PATH" ]; then
@@ -94,8 +95,10 @@ jobs:
             aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
             echo "Pulling latest image from ECR..."
-            docker pull ${{ needs.build-and-push-to-ecr.outputs.image_uri }}
-            docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+            echo "Pulling SHA-tagged image: $SHA_IMAGE_URI"
+            docker pull $SHA_IMAGE_URI
+            echo "Pulling latest-tagged image: $LATEST_IMAGE_URI"
+            docker pull $LATEST_IMAGE_URI
 
             echo "Stopping and removing old web containers..."
             cd "$PROJECT_PATH" # Ensure we are in the project directory
