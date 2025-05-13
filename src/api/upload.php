@@ -116,11 +116,27 @@ try {
                     if (!empty($labels)) {
                         $s3Tags = [];
                         foreach ($labels as $index => $label) {
-                            $tagName = preg_replace('/[^a-zA-Z0-9_.:/=+\-@]/ ', '_', $label['Name']);
-                            $tagName = substr('rekognition-' . $tagName, 0, 128);
+                            $originalLabelName = trim($label['Name']);
+                            $keyPart = '';
+
+                            if (!empty($originalLabelName)) {
+                                // corrected preg_replace (no trailing space in pattern, other improvements)
+                                $sanitizedLabelName = preg_replace('/[^a-zA-Z0-9_.:\/=+\-@]/ ', '_', $originalLabelName);
+                                $sanitizedLabelName = preg_replace('/__+/', '_', $sanitizedLabelName); // Collapse multiple underscores
+                                $keyPart = trim($sanitizedLabelName, '_'); // Trim leading/trailing underscores
+                            }
+
+                            if (empty($keyPart)) {
+                                $finalTagName = 'rekognition-label-' . $index;
+                            } else {
+                                $finalTagName = 'rekognition-' . $keyPart . '-' . $index;
+                            }
+
+                            // ensure the key is within S3 limits (128 chars)
+                            $finalTagName = substr($finalTagName, 0, 128);
 
                             $s3Tags[] = [
-                                'Key' => $tagName,
+                                'Key' => $finalTagName,
                                 'Value' => substr((string) round($label['Confidence'], 2), 0, 256)
                             ];
                         }
